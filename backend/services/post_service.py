@@ -21,7 +21,7 @@ def create_post(user_id, title, content, tags=None):
     if not content or not content.strip():
         raise ValueError("Content cannot be empty.")
     
-    # 标签处理与校验
+    # 校验 tags
     if tags is None:
         tags = []
     if not isinstance(tags, list):
@@ -29,39 +29,42 @@ def create_post(user_id, title, content, tags=None):
 
     cleaned_tags = []
     for t in tags:
-        # 转为字符串并去除首尾空格
         s = str(t).strip()
-        # 跳过空字符串
         if not s:
             continue
-        # 检查长度：1 ~ 15 个字符
-        if len(s) < 1:
-            continue  # 实际不会发生，因 strip 后非空
         if len(s) > 15:
             raise ValueError(f"Tag '{s}' exceeds 15 characters.")
-        cleaned_tags.append(s)
+        # 统一小写（避免 "AI" 和 "ai" 分离）
+        s = s.lower()
+        if s not in cleaned_tags:  # 内存去重
+            cleaned_tags.append(s)
 
-    # 去重
-    seen = set()
-    unique_tags = []
-    for tag in cleaned_tags:
-        if tag not in seen:
-            unique_tags.append(tag)
-            seen.add(tag)
-    cleaned_tags = unique_tags[:10]  # 最多保留10个
-
-    # 强制至少一个有效标签
     if not cleaned_tags:
         raise ValueError("At least one valid tag (1–15 characters) is required.")
+    if len(cleaned_tags) > 10:
+        cleaned_tags = cleaned_tags[:10]
 
     # 创建帖子
     post = Post(
         title=title.strip(),
         content=content.strip(),
-        user_id=user_id,
-        tags=cleaned_tags
+        user_id=user_id
     )
     db.session.add(post)
+    db.session.flush()  # 获取 post.id
+
+    # 处理标签
+    tag_objects = []
+    for tag_name in cleaned_tags:
+        # 查找或创建 Tag
+        tag = Tag.query.filter_by(name=tag_name).first()
+        if not tag:
+            tag = Tag(name=tag_name)
+            db.session.add(tag)
+            db.session.flush()
+        tag_objects.append(tag)
+    
+    post.tags = tag_objects
     db.session.commit()
     db.session.refresh(post)
     return post

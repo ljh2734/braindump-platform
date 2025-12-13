@@ -2,6 +2,19 @@ from datetime import datetime, timezone
 from database import db
 from werkzeug.security import generate_password_hash, check_password_hash
 
+class Tag(db.Model):
+    __tablename__ = 'tag'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(15), unique=True, nullable=False)  # 1~15字符，小写存储
+
+    def __repr__(self):
+        return f"<Tag {self.name}>"
+    
+post_tags = db.Table(
+    'post_tags',
+    db.Column('post_id', db.Integer, db.ForeignKey('post.id'), primary_key=True),
+    db.Column('tag_id', db.Integer, db.ForeignKey('tag.id'), primary_key=True)
+)
 
 class User(db.Model):
     __tablename__ = 'user'
@@ -68,7 +81,8 @@ class Post(db.Model):
     )
     # 点赞关系
     likes = db.relationship('Like', foreign_keys='Like.post_id', backref='post', lazy=True, cascade='all, delete-orphan')
-
+    # 关联tag
+    tags = db.relationship('Tag', secondary=post_tags, lazy='joined', backref=db.backref('posts', lazy=True))
 
     def to_dict(self):
         return {
@@ -79,7 +93,7 @@ class Post(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'author': self.author.to_public_dict(),
             'comment_count': getattr(self, 'comment_count', 0),
-            'tags': self.tags or [],
+            'tags': [tag.name for tag in self.tags],  # 返回标签名列表
             'like_count': getattr(self, 'like_count', 0),
             'question_count': getattr(self, 'question_count', 0)
         }
