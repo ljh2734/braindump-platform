@@ -13,6 +13,11 @@ from services.user_service import save_avatar, update_user_avatar, AvatarUploadE
 user_bp = Blueprint('user', __name__)
 
 
+@user_bp.route('/me')
+@login_required
+def get_current_user(current_user):
+    return jsonify(current_user.to_dict()), 200
+
 @user_bp.route('/avatar', methods=['POST'])
 @login_required
 def upload_avatar(current_user):

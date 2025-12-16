@@ -1,24 +1,27 @@
-// frontend/src/api/auth.js
-const API_BASE = '/api'
+// src/api/auth.js
+import request from '@/utils/request'
 
-export const register = (email, username, password) =>
-  fetch(`${API_BASE}/auth/register`, {
-    method: 'POST',
-    credentials: 'include', // ← 关键：携带 Cookie
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, username, password }),
-  }).then((res) => res.json())
+export function register(email, password, username) {
+  return request.post('/api/auth/register', { email, password, username })
+}
 
-export const login = (email, password) =>
-  fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  }).then((res) => res.json())
+// src/api/auth.js
+export function login(email, password) {
+  return request.post('/api/auth/login', { email, password })
+}
 
-export const logout = () =>
-  fetch(`${API_BASE}/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-  }).then((res) => res.json())
+//  获取当前用户（带 token）
+export function getCurrentUser() {
+  const token = localStorage.getItem('token')
+  if (!token) {
+    return Promise.reject(new Error('No token'))
+  }
+  return request.get('/api/user/me', {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+}
+
+// 可选：登出
+export function logout() {
+  localStorage.removeItem('token')
+}

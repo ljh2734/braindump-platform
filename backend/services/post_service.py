@@ -3,7 +3,7 @@
 
 from datetime import datetime, timedelta, timezone
 from database import db
-from models import Post, Comment, Like, Question
+from models import Post, Comment, Like, Question, Tag, post_tags
 from services.comment_service import (
     _get_all_descendant_ids,
     serialize_comments_with_interactions,
@@ -74,11 +74,8 @@ def get_all_posts():
     """获取所有帖子（按时间倒序）"""
     posts = Post.query.order_by(Post.created_at.desc()).all()
     interaction_data = _get_interaction_counts_for_posts(posts)
-    for post in posts:
-        post.like_count = interaction_data[post.id]['like_count']
-        post.question_count = interaction_data[post.id]['question_count']
-        post.comment_count = interaction_data[post.id]['comment_count']
-    return posts
+    # 直接返回带 extra_data 的字典列表
+    return [post.to_dict(extra_data=interaction_data[post.id]) for post in posts]
 
 
 
@@ -176,13 +173,15 @@ def get_post_with_paginated_comments(post_id, limit=10, before=None, after=None,
         top_data.pop('replies', None)
         result_comments.append(top_data)
 
+    interaction_data = {}
     if post:
         interaction_data = _get_interaction_counts_for_posts([post])
-        post.like_count = interaction_data[post.id]['like_count']
-        post.question_count = interaction_data[post.id]['question_count']
-        post.comment_count = interaction_data[post.id]['comment_count']
-        
-    return post, result_comments, has_more
+
+    if post:
+        post_dict = post.to_dict(extra_data=interaction_data[post.id])
+    else:
+        post_dict = None
+    return post_dict, result_comments, has_more
 
 def get_posts_paginated_by_sort(sort_type='newest', limit=10, before=None, after=None):
     """
@@ -205,11 +204,10 @@ def get_posts_paginated_by_sort(sort_type='newest', limit=10, before=None, after
         
 
         interaction_data = _get_interaction_counts_for_posts(posts)
-        for post in posts:
-            post.like_count = interaction_data[post.id]['like_count']
-            post.question_count = interaction_data[post.id]['question_count']
-            post.comment_count = interaction_data[post.id]['comment_count']
-        return posts, has_more
+        # 返回字典列表 + has_more
+        return [
+            post.to_dict(extra_data=interaction_data[post.id]) for post in posts
+        ], has_more
 
     else:
         post_ids = get_sorted_post_ids(sort_type=sort_type, limit=limit)
@@ -221,12 +219,7 @@ def get_posts_paginated_by_sort(sort_type='newest', limit=10, before=None, after
         
         # 注入互动数据
         interaction_data = _get_interaction_counts_for_posts(ordered_posts)
-        for post in ordered_posts:
-            post.like_count = interaction_data[post.id]['like_count']
-            post.question_count = interaction_data[post.id]['question_count']
-            post.comment_count = interaction_data[post.id]['comment_count']
-        has_more = False # 增长类排序不支持分页
-        return ordered_posts, has_more
+        return [post.to_dict(extra_data=interaction_data[post.id]) for post in ordered_posts], has_more
     
 
 def get_random_posts(limit=10):
@@ -236,14 +229,8 @@ def get_random_posts(limit=10):
     thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
     #计算30天前时间
     posts = Post.query.filter(Post.created_at >= thirty_days_ago).order_by(func.random()).limit(limit).all()  
-    # 批量注入互动数据
     interaction_data = _get_interaction_counts_for_posts(posts)
-    for post in posts:
-        post.like_count = interaction_data[post.id]['like_count']
-        post.question_count = interaction_data[post.id]['question_count']
-        post.comment_count = interaction_data[post.id]['comment_count']
-    return posts
-
+    return [post.to_dict(extra_data=interaction_data[post.id]) for post in posts]
 
 def _get_interaction_counts_for_posts(posts):
     """
@@ -294,3 +281,62 @@ def _get_interaction_counts_for_posts(posts):
         }
         for pid in post_ids
     }
+
+def search_posts_by_tags(tag_names, limit=10, after_id=None):
+    """
+    按标签搜索帖子：
+    - tag_names: ['ai', '科技'] （应为小写）
+    - 返回匹配至少一个标签的帖子
+    - 按匹配标签数 DESC, created_at DESC 排序
+    - 支持游标分页（after_id）
+    """
+    if not tag_names or limit <= 0:
+        return [], False
+
+    # 转小写 + 去重
+    tag_names = list(set([name.strip().lower() for name in tag_names if name.strip()]))
+    if not tag_names:
+        return [], False
+
+    # 查询存在的 tag_ids
+    existing_tags = Tag.query.filter(Tag.name.in_(tag_names)).all()
+    if not existing_tags:
+        return [], False
+    tag_ids = [t.id for t in existing_tags]
+
+    # 构建查询：JOIN 中间表，GROUP BY 计算匹配数
+    query = (
+        db.session.query(Post, func.count(post_tags.c.tag_id).label('match_count'))
+        .join(post_tags, Post.id == post_tags.c.post_id)
+        .filter(post_tags.c.tag_id.in_(tag_ids))
+        .group_by(Post.id)
+        .order_by(func.count(post_tags.c.tag_id).desc(), Post.created_at.desc())
+    )
+
+    # 游标分页：只加载比 after_id 更早的帖子（按排序规则）
+    if after_id is not None:
+        # 找到 after_id 对应的帖子的 (match_count, created_at)
+        after_post = Post.query.get(after_id)
+        if after_post:
+            after_match_count = (
+                db.session.query(func.count(post_tags.c.tag_id))
+                .filter(post_tags.c.post_id == after_id, post_tags.c.tag_id.in_(tag_ids))
+                .scalar()
+            )
+            # 条件：匹配数更少，或匹配数相同但创建时间更早
+            query = query.filter(
+                (func.count(post_tags.c.tag_id) < after_match_count) |
+                ((func.count(post_tags.c.tag_id) == after_match_count) & (Post.created_at < after_post.created_at))
+            )
+
+    # 执行查询
+    results = query.limit(limit + 1).all()
+    posts = [r[0] for r in results]
+    has_more = len(posts) > limit
+    if has_more:
+        posts = posts[:-1]
+
+    interaction_data = _get_interaction_counts_for_posts(posts)
+    return [
+        post.to_dict(extra_data=interaction_data[post.id]) for post in posts
+    ], has_more

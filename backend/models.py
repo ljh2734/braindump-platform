@@ -71,6 +71,14 @@ class Post(db.Model):
     # 外键：作者
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
+    @property
+    def like_count(self):
+        return Like.query.filter_by(target_type='post', target_id=self.id).count()
+
+    @property
+    def question_count(self):
+        return Question.query.filter_by(target_type='post', target_id=self.id).count()
+
     # 评论关系
     comments = db.relationship(
         'Comment',
@@ -79,12 +87,12 @@ class Post(db.Model):
         lazy=True,
         cascade='all, delete-orphan'
     )
-    # 点赞关系
-    likes = db.relationship('Like', foreign_keys='Like.post_id', backref='post', lazy=True, cascade='all, delete-orphan')
+    
     # 关联tag
     tags = db.relationship('Tag', secondary=post_tags, lazy='joined', backref=db.backref('posts', lazy=True))
 
-    def to_dict(self):
+    def to_dict(self, extra_data=None):
+        extra_data = extra_data or {}
         return {
             'id': self.id,
             'title': self.title,
@@ -92,10 +100,10 @@ class Post(db.Model):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'author': self.author.to_public_dict(),
-            'comment_count': getattr(self, 'comment_count', 0),
-            'tags': [tag.name for tag in self.tags],  # 返回标签名列表
-            'like_count': getattr(self, 'like_count', 0),
-            'question_count': getattr(self, 'question_count', 0)
+            'comment_count': extra_data.get('comment_count', len(self.comments)),  # 安全回退
+            'tags': [tag.name for tag in self.tags],
+            'like_count': extra_data.get('like_count', self.like_count),
+            'question_count': extra_data.get('question_count', self.question_count)
         }
 
 

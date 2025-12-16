@@ -13,10 +13,11 @@ from services.post_service import (
     get_all_posts,
     get_post_with_paginated_comments,
     get_posts_paginated_by_sort,
-    get_random_posts
+    get_random_posts,
+    search_posts_by_tags as get_search_posts_by_tags
 )
 from utils.response_utils import success, error
-
+import json
 
 post_bp = Blueprint('posts', __name__)
 
@@ -47,21 +48,19 @@ def create_post_route(current_user):
         traceback.print_exc()
         return error("Failed to create post.", 500)
 
-
-@post_bp.route('', methods=['GET'])
 @post_bp.route('/', methods=['GET'])
+@post_bp.route('', methods=['GET'])
 def get_posts():
-    """获取分页帖子（支持多种排序）"""
+    """获取所有帖子，支持分页和排序"""
     try:
-        sort = request.args.get('sort', 'newest')  # 新增参数
+        sort = request.args.get('sort', 'newest')
         limit = request.args.get('limit', default=10, type=int)
         before = request.args.get('before', default=None, type=str)
         after = request.args.get('after', default=None, type=str)
 
-        # 安全限制
         limit = min(limit, 50)
 
-        # 调用新服务函数
+        #  现在 posts 已经是 List[dict]，无需再调用 .to_dict()
         posts, has_more = get_posts_paginated_by_sort(
             sort_type=sort,
             limit=limit,
@@ -70,10 +69,9 @@ def get_posts():
         )
 
         return success({
-            "posts": [post.to_dict() for post in posts],
+            "posts": posts, 
             "has_more": has_more
         }, "Posts retrieved successfully.")
-
     except ValueError as e:
         return error(str(e), 400)
     except Exception as e:
@@ -81,8 +79,9 @@ def get_posts():
         return error("Failed to retrieve posts.", 500)
 
 
-@post_bp.route('/posts/<int:post_id>', methods=['GET'])
+@post_bp.route('/<int:post_id>', methods=['GET'])
 def get_post(post_id):
+    """获取帖子详情及其评论，支持评论分页和排序"""
     try:
         comment_sort = request.args.get('comment_sort', 'hot') 
         if comment_sort not in ('hot', 'time_desc'):
@@ -103,7 +102,7 @@ def get_post(post_id):
             return jsonify({'error': 'Post not found'}), 404
 
         return jsonify({
-            'post': post.to_dict(),
+            'post': post,
             'comments': comments,
             'has_more': has_more
         }), 200
@@ -128,3 +127,42 @@ def get_roam_posts():
     except Exception as e:
         print("Roam Posts Error:", repr(e))
         return error("Failed to fetch roam posts.", 500)
+    
+@post_bp.route('/search-by-tags', methods=['GET'])
+def search_posts_by_tags_route():
+    """按标签搜索帖子"""
+    try:
+        # 支持 ?tags=["ai","tech"] 或 tags=ai&tags=tech
+        tags_param = request.args.get('tags')
+        if tags_param is None:
+            return error("Missing 'tags' parameter.", 400)
+
+        # 尝试 JSON 解析（推荐）
+        try:
+            tags = json.loads(tags_param)
+        except (json.JSONDecodeError, TypeError):
+            # 回退到多值参数：?tags=ai&tags=tech
+            tags = request.args.getlist('tags')
+
+        if not isinstance(tags, list):
+            return error("'tags' must be an array of strings.", 400)
+
+        limit = min(max(request.args.get('limit', 10, type=int), 1), 20)
+        after_id = request.args.get('after_id', type=int)
+
+        posts, has_more = get_search_posts_by_tags( 
+            tag_names=tags,
+            limit=limit,
+            after_id=after_id
+        )
+
+        return success({
+            "posts": [post.to_dict() for post in posts],
+            "has_more": has_more
+        }, "Posts retrieved successfully.")
+
+    except ValueError as e:
+        return error(str(e), 400)
+    except Exception as e:
+        print("Search Posts Error:", repr(e))
+        return error("Failed to search posts.", 500)
