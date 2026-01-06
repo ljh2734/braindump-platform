@@ -1,4 +1,3 @@
-# backend/services/interaction_service.py
 """
 互动服务模块：处理点赞（Like）和问号（Question）操作。
 支持对 Post 或 Comment 进行独立的 Like / Question 操作。
@@ -53,7 +52,7 @@ def _toggle_action(model_class, user_id: int, target_type: str, target_id: int):
 
     except Exception as e:
         db.session.rollback()
-        # 可选：记录日志
+        # 记录日志
         print(f"Error in _toggle_action: {e}")
         return False, False, 0
 

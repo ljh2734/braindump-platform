@@ -1,4 +1,3 @@
-// src/router/index.js
 import { createRouter, createWebHistory } from 'vue-router'
 
 // Views
@@ -7,15 +6,13 @@ import RegisterView from '@/views/RegisterView.vue'
 import HomeView from '@/views/HomeView.vue'
 import SearchByTagsView from '@/views/SearchByTagsView.vue'
 
-// 新增：必须的页面（请确保这些文件存在）
 import PostCreateView from '@/views/PostCreateView.vue'     // 发帖
 import PostDetailView from '@/views/PostDetailView.vue'     // 帖子详情
 import ProfileView from '@/views/ProfileView.vue'           // 个人主页
 import MyPostsView from '@/views/MyPostsView.vue'           // 我的帖子
 
-// 可选：通用搜索页（支持关键词）
-import SearchView from '@/views/SearchView.vue'             // /search?q=...
-
+// 通用搜索页（支持关键词）
+import SearchView from '@/views/SearchView.vue'
 const routes = [
   { path: '/login', component: LoginView },
   { path: '/register', component: RegisterView },
@@ -25,7 +22,12 @@ const routes = [
 
   // 帖子相关
   { path: '/post/create', component: PostCreateView, meta: { requiresAuth: true } },
-  { path: '/post/:id', component: PostDetailView, meta: { requiresAuth: true } },
+ // src/router/index.js
+{
+  path: '/post/:id(\\d+)',
+  component: PostDetailView,
+  meta: { requiresAuth: true }
+},
 
   // 用户相关
   { path: '/profile', component: ProfileView, meta: { requiresAuth: true } },
@@ -34,6 +36,28 @@ const routes = [
   // 搜索
   { path: '/search/tags', component: SearchByTagsView, meta: { requiresAuth: true } },
   { path: '/search', component: SearchView, meta: { requiresAuth: true } }, // 支持 ?q=xxx
+
+  // 编辑帖子
+{
+  path: '/post/edit/:id',
+  name: 'PostEdit',
+  component: () => import('@/views/PostEditView.vue'),
+  meta: { requiresAuth: true }
+},
+
+// 私信相关路由
+{
+  path: '/messages',
+  name: 'Messages',
+  component: () => import('@/views/MessagesView.vue')
+},
+{
+  path: '/messages/:userId',
+  name: 'Chat',
+  component: () => import('@/views/ChatView.vue'),
+  props: true
+}
+
 ]
 
 const router = createRouter({

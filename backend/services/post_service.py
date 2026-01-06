@@ -1,4 +1,3 @@
-# backend/services/post_service.py
 """帖子服务层：封装所有与 Post 相关的业务逻辑"""
 
 from datetime import datetime, timedelta, timezone
@@ -12,8 +11,6 @@ from services.comment_service import (
 from sqlalchemy.orm import joinedload
 from sqlalchemy import case, func
 from services.analytics_service import get_sorted_post_ids
-
-# backend/services/post_service.py
 
 def create_post(user_id, title, content, tags=None):
     if not title or not title.strip():
@@ -107,7 +104,9 @@ def get_post_with_paginated_comments(post_id, limit=10, before=None, after=None,
                                    .filter_by(post_id=post_id, parent_id=None) \
                                    .all()
         if not all_top_comments:
-            return post, [], False
+            interaction_data = _get_interaction_counts_for_posts([post])
+            post_dict = post.to_dict(extra_data=interaction_data.get(post.id, {}))
+            return post_dict, [], False
 
         # 批量获取互动数据用于排序
         serialized_map = _get_interactions_for_comments(all_top_comments)
@@ -126,7 +125,10 @@ def get_post_with_paginated_comments(post_id, limit=10, before=None, after=None,
 
     # === 以下逻辑通用（构建 top_reply + total_descendants）===
     if not top_level_comments:
-        return post, [], has_more
+        # 获取互动数据并序列化帖子
+        interaction_data = _get_interaction_counts_for_posts([post])
+        post_dict = post.to_dict(extra_data=interaction_data.get(post.id, {}))
+        return post_dict, [], has_more
 
     # 收集所有需要序列化的评论（顶层 + 后代）
     all_comments_to_serialize = list(top_level_comments)
@@ -152,25 +154,32 @@ def get_post_with_paginated_comments(post_id, limit=10, before=None, after=None,
         ]
         return data
 
+    # === 新代码（补充 sub_count 和 hot_reply）===
     result_comments = []
     for top in top_level_comments:
-        direct_children = Comment.query.filter_by(parent_id=top.id).all()
+        # 获取直接子评论（用于计算 sub_count 和 hot_reply）
+        direct_children = [c for c in all_comments_to_serialize if c.parent_id == top.id]
+        
+        # 计算 sub_count（直接子评论数量）
+        sub_count = len(direct_children)
+        
+        # 获取最热子评论（按 like+question 排序）
         hottest = None
         if direct_children:
-            # 注意：这里仍用 full map 中的数据排序
             sorted_children = sorted(
                 direct_children,
-                key=lambda x: (
-                    -(serialized_map_full[x.id]['like_count'] + serialized_map_full[x.id]['question_count']),
-                    x.created_at
+                key=lambda c: (
+                    -(serialized_map_full[c.id]['like_count'] + serialized_map_full[c.id]['question_count']),
+                    -c.created_at.timestamp()  # 越新越前
                 )
             )
-            hottest = build_tree_from_serialized(sorted_children[0].id)
-
+            hottest = serialized_map_full[sorted_children[0].id]  # 直接使用序列化后的数据
+        
+        # 构建主评论数据
         top_data = serialized_map_full[top.id].copy()
-        top_data['top_reply'] = hottest
-        top_data['total_descendants'] = len(_get_all_descendant_ids(top.id))
-        top_data.pop('replies', None)
+        top_data['sub_count'] = sub_count      # 新增字段
+        top_data['hot_reply'] = hottest        # 字段名与前端一致
+        top_data.pop('replies', None)          # 移除树形结构
         result_comments.append(top_data)
 
     interaction_data = {}
@@ -186,7 +195,6 @@ def get_post_with_paginated_comments(post_id, limit=10, before=None, after=None,
 def get_posts_paginated_by_sort(sort_type='newest', limit=10, before=None, after=None):
     """
     根据排序类型获取分页帖子（支持 newest, questions_7d, interactions_30d 等）
-    注意：增长类排序不分页（因需全量计算），仅支持 limit 控制数量
     """
     valid_sorts = ['newest', 'questions_7d', 'questions_30d', 'interactions_7d', 'interactions_30d']
     if sort_type not in valid_sorts:
@@ -195,7 +203,7 @@ def get_posts_paginated_by_sort(sort_type='newest', limit=10, before=None, after
     if sort_type == 'newest':
         query = Post.query.order_by(Post.created_at.desc())
         if after:
-            after_dt = datetime.fromisoformat(after.replace('Z', '+00:00'))
+            after_dt = datetime.fromisoformat(after.replace('Z', '+23:59'))
             query = query.filter(Post.created_at < after_dt)
         posts = query.limit(limit + 1).all()
         has_more = len(posts) > limit
@@ -210,17 +218,23 @@ def get_posts_paginated_by_sort(sort_type='newest', limit=10, before=None, after
         ], has_more
 
     else:
+        # 增长类排序：不支持分页，只按 limit 返回 top-N
         post_ids = get_sorted_post_ids(sort_type=sort_type, limit=limit)
         if not post_ids:
-            return [], False
+            return [], False  # has_more = False
+        
         posts = Post.query.filter(Post.id.in_(post_ids)).all()
         post_map = {p.id: p for p in posts}
         ordered_posts = [post_map[pid] for pid in post_ids if pid in post_map]
         
-        # 注入互动数据
         interaction_data = _get_interaction_counts_for_posts(ordered_posts)
-        return [post.to_dict(extra_data=interaction_data[post.id]) for post in ordered_posts], has_more
-    
+        
+        #显式设置 has_more = False
+        has_more = False  # 因为不分页，永远没有“更多”
+        
+        return [
+            post.to_dict(extra_data=interaction_data[post.id]) for post in ordered_posts
+        ], has_more    
 
 def get_random_posts(limit=10):
     """获取最近30天内的随机帖子"""

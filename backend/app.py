@@ -1,4 +1,3 @@
-# backend/app.py
 from flask import Flask
 from flask_cors import CORS
 from config import Config
@@ -36,13 +35,16 @@ def create_app():
     from api.user_bp import user_bp
     from api.comment_bp import comment_bp
     from api.interaction_bp import interaction_bp
+    from api.message_bp import message_bp
+    from api.block_bp import block_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(post_bp, url_prefix='/api/posts')
     app.register_blueprint(user_bp, url_prefix='/api/user')
     app.register_blueprint(comment_bp, url_prefix='/api')
     app.register_blueprint(interaction_bp, url_prefix='/api')
-    
+    app.register_blueprint(message_bp, url_prefix='/api/messages')
+    app.register_blueprint(block_bp, url_prefix='/api/block')
     return app
 
 app = create_app()

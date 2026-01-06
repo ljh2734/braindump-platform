@@ -1,4 +1,3 @@
-# backend/utils/auth_utils.py
 import jwt
 from datetime import datetime, timedelta, timezone
 from flask import current_app, request
@@ -47,7 +46,7 @@ def authenticate_user(email, password):
 
 def register_user(email, username, password):
     """注册新用户（带唯一性校验）"""
-    # 检查邮箱或用户名是否已存在
+    # 检查用户名是否已存在
     if User.query.filter_by(email=email).first():
         raise ValueError('Email already registered.')
     if User.query.filter_by(username=username).first():

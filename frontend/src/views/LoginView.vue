@@ -1,15 +1,14 @@
-<!-- src/views/LoginView.vue -->
 <template>
   <div class="login-container">
     <h2>用户登录</h2>
     <form @submit.prevent="handleLogin" class="login-form">
       <div class="form-group">
-        <label for="email">邮箱</label>
+        <label for="account">账号</label>
         <input
-          id="email"
+          id="account"
           v-model="email"
-          type="email"
-          placeholder="请输入邮箱"
+          type="text"
+          placeholder="请输入账号"
           required
         />
       </div>
@@ -43,7 +42,24 @@ const router = useRouter()
 
 const handleLogin = async () => {
   if (!email.value || !password.value) {
-    ElMessage.warning('请输入邮箱和密码')
+    ElMessage({
+      message: '请输入账号和密码',
+      type: 'warning',
+      center: true,
+      duration: 2000
+    })
+    return
+  }
+
+  //格式校验
+  const accountRegex = /^[a-zA-Z0-9_@.]{3,20}$/
+  if (!accountRegex.test(email.value)) {
+    ElMessage({
+      message: '账号只能包含字母、数字、下划线、@、点，长度3-20位',
+      type: 'warning',
+      center: true,
+      duration: 2000
+    })
     return
   }
 
@@ -55,12 +71,28 @@ const handleLogin = async () => {
     await router.push('/')
   } catch (err) {
     console.error('登录失败:', err)
-    ElMessage.error('登录失败，请检查账号密码')
+    ElMessage({
+      message: '登录失败，请检查账号密码',
+      type: 'error',
+      center: true,
+      duration: 2000
+    })
   }
 }
 </script>
 
 <style scoped>
+
+.el-message {
+  min-width: auto !important;
+  padding: 8px 16px !important;
+  height: auto !important;
+  line-height: 1.4 !important;
+  font-size: 13px !important;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1) !important;
+  border-radius: 4px !important;
+}
+
 .login-container {
   max-width: 400px;
   margin: 50px auto;

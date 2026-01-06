@@ -1,5 +1,12 @@
 <template>
   <div class="post-card" @click="goToDetail">
+
+    <!-- 删除和编辑按钮（仅作者可见） -->
+    <div v-if="isAuthor" class="action-buttons">
+      <button @click.stop="editPost" class="edit-btn" title="编辑帖子">✏️</button>
+      <button @click.stop="deletePost" class="delete-btn" title="删除帖子">🗑️</button>
+    </div>
+
     <!-- 标题 -->
     <h3 class="post-title">{{ post.title }}</h3>
 
@@ -34,10 +41,12 @@ const props = defineProps({
     validator(value) {
       return value && typeof value.id !== 'undefined'
     }
-  }
+  },
+  currentUserId: { type: [Number, null], default: null }
 })
 
 const router = useRouter()
+const emit = defineEmits(['deleted']) 
 
 // 生成内容摘要（取前 20 个字符，超出加 ...）
 const excerpt = computed(() => {
@@ -46,14 +55,49 @@ const excerpt = computed(() => {
   return content.slice(0, 20) + '...'
 })
 
+// 判断当前用户是否为帖子作者
+const isAuthor = computed(() => {
+  return props.currentUserId && props.post.author?.id === props.currentUserId
+})
+
 // 跳转到详情页
 function goToDetail() {
   router.push(`/post/${props.post.id}`)
 }
+
+function editPost() {
+  router.push(`/post/edit/${props.post.id}`)
+}
+
+async function deletePost() {
+  if (!confirm('确定要删除这篇帖子吗？')) return
+
+  try {
+    const token = localStorage.getItem('token')
+    const res = await fetch(`/api/posts/${props.post.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer ' + token }
+    })
+
+    if (res.ok) {
+      alert('帖子已删除')
+      emit('deleted', props.post.id) // 通知父组件
+    } else {
+      const err = await res.json()
+      alert('删除失败：' + (err.error || '未知错误'))
+    }
+  } catch (err) {
+    console.error(err)
+    alert('网络错误，请重试')
+  }
+}
+
 </script>
 
 <style scoped>
 .post-card {
+  width: 100%;
+  min-width: 0;
   background: white;
   border-radius: 16px;
   padding: 20px;
@@ -70,20 +114,12 @@ function goToDetail() {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
 }
 
-.post-title {
-  font-size: 18px;
-  font-weight: 700;
-  color: #1f2937;
-  margin: 0 0 12px 0;
-  line-height: 1.4;
-}
-
+.post-title,
 .post-excerpt {
-  font-size: 14px;
-  color: #4b5563;
-  margin: 0 0 16px 0;
-  line-height: 1.5;
-  flex: 1;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: normal;
+  hyphens: auto;
 }
 
 .post-stats {
@@ -97,5 +133,51 @@ function goToDetail() {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+
+
+.delete-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+.action-buttons {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.post-card:hover .action-buttons {
+  opacity: 1;
+}
+
+.edit-btn,
+.delete-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.edit-btn:hover {
+  background: #e0f2fe;
+  color: #0ea5e9;
+}
+
+.delete-btn:hover {
+  background: #fee2e2;
+  color: #ef4444;
 }
 </style>

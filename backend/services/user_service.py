@@ -1,4 +1,3 @@
-# backend/services/user_service.py
 import os
 from werkzeug.utils import secure_filename
 from utils.auth_utils import authenticate_user, register_user, encode_auth_token

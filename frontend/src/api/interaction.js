@@ -1,4 +1,3 @@
-// src/api/interaction.js
 import request from '@/utils/request'
 
 export function toggleLike(targetType, targetId) {

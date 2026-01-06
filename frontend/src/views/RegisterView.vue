@@ -1,20 +1,41 @@
-<!-- src/views/RegisterView.vue -->
 <template>
   <div class="auth-container">
     <h2>📝 注册 BrainDump</h2>
     <form @submit.prevent="handleRegister" class="auth-form">
       <div class="form-group">
-        <label>用户名</label>
-        <input v-model="username" type="text" required maxlength="20" />
+        <label>账号（用于登录）</label>
+        <input v-model="account" type="text" required maxlength="20" placeholder="字母、数字、下划线，3-20位" />
       </div>
       <div class="form-group">
-        <label>邮箱</label>
-        <input v-model="email" type="email" required />
+        <label>昵称</label>
+        <input v-model="username" type="text" required maxlength="20" />
       </div>
       <div class="form-group">
         <label>密码（至少6位）</label>
         <input v-model="password" type="password" required minlength="6" />
       </div>
+      <!-- 验证码 -->
+      <div class="form-group captcha-group">
+        <label>图片验证码</label>
+        <div class="captcha-input-wrapper">
+          <input
+            v-model="captcha"
+            type="text"
+            required
+            maxlength="6"
+            placeholder="请输入验证码"
+            style="width: 120px; margin-right: 10px;"
+          />
+          <img
+            :src="captchaUrl"
+            alt="验证码"
+            @click="refreshCaptcha"
+            style="cursor: pointer; vertical-align: middle;"
+            title="点击刷新"
+          />
+        </div>
+      </div>
+
       <button type="submit" :disabled="loading">
         {{ loading ? '注册中...' : '注册' }}
       </button>
@@ -25,35 +46,61 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { register } from '@/api/auth'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 
+const account = ref('')     // 原 email，现为账号
 const username = ref('')
-const email = ref('')
 const password = ref('')
+const captcha = ref('')
 const loading = ref(false)
 const error = ref('')
 const router = useRouter()
+
+// 验证码相关
+const captchaUrl = ref('')
+const refreshCaptcha = () => {
+  // 加时间戳避免缓存
+  captchaUrl.value = `/api/auth/captcha?t=${new Date().getTime()}`
+}
+onMounted(() => {
+  refreshCaptcha()
+})
 
 const handleRegister = async () => {
   loading.value = true
   error.value = ''
   try {
-    await register(email.value, password.value, username.value)
-    alert('注册成功！请登录')
-    router.push('/login')
+    const response = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include', // 支持 session
+      body: JSON.stringify({
+        account: account.value.trim(),
+        username: username.value.trim(),
+        password: password.value,
+        captcha: captcha.value.trim()
+      })
+    })
+
+    const data = await response.json()
+    if (response.ok) {
+      alert('注册成功！请登录')
+      router.push('/login')
+    } else {
+      error.value = data.error || '注册失败'
+    }
   } catch (err) {
     console.error('注册失败:', err)
-    error.value = err.response?.data?.message || '注册失败'
+    error.value = '网络错误，请重试'
   } finally {
     loading.value = false
+    refreshCaptcha() // 刷新验证码
   }
 }
 </script>
 
 <style scoped>
-/* 复用 LoginView 的样式 */
 .auth-container {
   max-width: 400px;
   margin: 2rem auto;
@@ -70,6 +117,10 @@ const handleRegister = async () => {
   margin-top: 0.25rem;
   border: 1px solid #ccc;
   border-radius: 4px;
+}
+.captcha-input-wrapper {
+  display: flex;
+  align-items: center;
 }
 button {
   width: 100%;

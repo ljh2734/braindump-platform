@@ -1,4 +1,3 @@
-# backend/services/comment_service.py
 """
 评论服务层：封装所有与 Comment 相关的业务逻辑
 支持嵌套评论、权限控制、批量序列化、级联删除等。
@@ -53,17 +52,31 @@ def serialize_comments_with_interactions(comments):
     ).group_by(Question.target_id).all()
     question_map = dict(question_counts)
 
+    # === 批量查 sub_count（仅对主评论有意义）===
+    # 提取所有主评论 ID（即 parent_id 为 None 的评论）
+    main_comment_ids = [c.id for c in comments if c.parent_id is None]
+    sub_count_map = {}
+    if main_comment_ids:
+        sub_counts = db.session.query(
+            Comment.parent_id,
+            db.func.count(Comment.id).label('sub_count')
+        ).filter(
+            Comment.parent_id.in_(main_comment_ids)
+        ).group_by(Comment.parent_id).all()
+        sub_count_map = dict(sub_counts)
+
     result = []
     for c in comments:
         data = {
             'id': c.id,
             'content': c.content,
-            'created_at': c.created_at.isoformat() if c.created_at else None,
+            'created_at': c.created_at.strftime("%Y-%m-%dT%H:%M:%S.%fZ") if c.created_at else None,
             'post_id': c.post_id,
             'parent_id': c.parent_id,
             'like_count': like_map.get(c.id, 0),
             'question_count': question_map.get(c.id, 0),
-            'author': c.author.to_public_dict()
+            'author': c.author.to_public_dict(),
+            'sub_count': sub_count_map.get(c.id, 0) if c.parent_id is None else 0
         }
         result.append(data)
     return result

@@ -1,5 +1,3 @@
-# backend/services/analytics_service.py
-
 from datetime import datetime, timedelta, timezone
 from database import db
 from models import Like, Question
@@ -36,7 +34,7 @@ def get_sorted_post_ids(sort_type: str, limit: int = 20):
             Question.created_at >= cutoff
         ).group_by(Question.target_id).all()
 
-    else:  # 'all' → Like + Question
+    else:
         # 分别查 like 和 question 的数量，然后 union all 后 group by
         like_query = db.session.query(
             Like.target_id.label('post_id'),

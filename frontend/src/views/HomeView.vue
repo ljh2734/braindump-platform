@@ -14,19 +14,25 @@
           {{ tab.label }}
         </button>
       </div>
-      <!-- 搜索框 -->
+      <!-- 搜索框 + 切换按钮 -->
       <div class="search-box">
-        <input
-          v-model="searchQuery"
-          @keyup.enter="handleSearch"
-          placeholder="搜索帖子..."
-          class="search-input"
-        />
+        <div class="search-input-wrapper">
+          <input
+            v-model="searchQuery"
+            @keyup.enter="handleSearch"
+            placeholder="搜索帖子..."
+            class="search-input"
+          />
+          <!-- 切换按钮：紧挨着输入框右侧 -->
+          <button @click="toggleSearchMode" class="search-mode-toggle">
+            {{ searchMode === 'title' ? '按标题' : '按标签' }}
+          </button>
+        </div>
         <button @click="handleSearch" class="search-btn">🔍</button>
       </div>
       <!-- 用户头像（固定右上角） -->
       <div class="user-info" @click="toggleProfileMenu">
-        <img :src="currentUser?.avatar || '/default-avatar.png'" alt="头像" class="avatar" />
+        <img :src="userAvatar" alt="头像" class="avatar" />
         <span class="username">{{ currentUser?.username || '游客' }}</span>
         <!-- 下拉菜单 -->
         <div v-if="showProfileMenu" class="profile-menu">
@@ -38,7 +44,7 @@
     </header>
 
     <!-- 主内容区 -->
-    <main class="main-content">
+   <main class="main-content" ref="mainContent">
       <div class="posts-grid" ref="postsContainer">
         <div v-if="loading && posts.length === 0" class="loading">加载中...</div>
         <div v-else-if="posts.length === 0" class="no-posts">暂无帖子</div>
@@ -51,7 +57,7 @@
       <button @click="openCreatePost" class="fab primary">📝 发帖</button>
       <button @click="refreshPosts" class="fab secondary">🔄 刷新</button>
       
-      <!-- 🔥 新增：仅在“？”页面显示的周期切换按钮（垂直排列在刷新按钮下方） -->
+      <!-- 仅在“？”页面显示的周期切换按钮（垂直排列在刷新按钮下方） -->
       <div v-if="currentTab === 'questions_7d'" class="period-toggle">
         <button
           class="period-btn"
@@ -68,12 +74,25 @@
           本月
         </button>
       </div>
+      <!--仅在推荐页面显示周期切换按钮-->
+      <div v-if="currentTab === 'recommended'" class="period-toggle">
+      <button 
+        class="period-btn" 
+        :class="{ active: recommendedPeriod === '7d' }"
+        @click="setRecommendedPeriod('7d')"
+      >本周</button>
+      <button 
+        class="period-btn" 
+        :class="{ active: recommendedPeriod === '30d' }"
+        @click="setRecommendedPeriod('30d')"
+      >本月</button>
+    </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import PostCard from '@/components/PostCard.vue'
 import { getCurrentUser, logout as apiLogout } from '@/api/auth'
@@ -86,29 +105,38 @@ const loading = ref(false)
 const hasMore = ref(true)
 const currentTab = ref('newest')
 const searchQuery = ref('')
+const searchMode = ref('title')
 const currentUser = ref(null)
 const showProfileMenu = ref(false)
 
-// 🔥 新增：问号周期状态（默认7天）
+// 问号周期状态（默认7天）
 const questionPeriod = ref('7d')
+// 推荐周期状态
+const recommendedPeriod = ref('7d')
+const DEFAULT_AVATAR = '/static/default-avatar.png'
+const userAvatar = computed(() => {
+  return currentUser.value?.avatar_url || DEFAULT_AVATAR
+})
 
 // === 导航标签 ===
 // 将 ? 的 key 改为 questions_7d，以便默认使用7天数据
 const tabs = [
   { key: 'recommended', label: '推荐' },
   { key: 'roam', label: '漫游' },
-  { key: 'questions_7d', label: '?' }, // ← 关键：使用后端支持的 sort key
+  { key: 'questions_7d', label: '?' }, //使用后端支持的 sort key
   { key: 'newest', label: '最新' }
 ]
 
-// === 🔥 辅助函数：获取当前实际 sort 参数 ===
+// === 辅助函数：获取当前实际 sort 参数 ===
 function getCurrentSort() {
   if (currentTab.value === 'questions_7d') {
     return questionPeriod.value === '7d' ? 'questions_7d' : 'questions_30d'
   }
+  if (currentTab.value === 'recommended') {
+    return recommendedPeriod.value === '7d' ? 'interactions_7d' : 'interactions_30d'
+  }
   return currentTab.value
 }
-
 // === 加载帖子（游标分页）===
 async function loadPosts(isRefresh = false) {
   if (loading.value || (!hasMore.value && !isRefresh)) return
@@ -121,13 +149,13 @@ async function loadPosts(isRefresh = false) {
   try {
     let url
     const params = new URLSearchParams()
-    const sortParam = getCurrentSort() // ← 使用动态 sort
+    const sortParam = getCurrentSort() // 使用动态 sort
 
     if (sortParam === 'roam') {
       url = '/api/posts/roam'
     } else {
       params.append('sort', sortParam)
-      params.append('limit', '10')
+      params.append('limit', '20')
       if (!isRefresh && posts.value.length > 0) {
         const lastPost = posts.value[posts.value.length - 1]
         params.append('after', lastPost.created_at)
@@ -163,23 +191,41 @@ async function loadPosts(isRefresh = false) {
 // === 事件处理 ===
 function switchTab(tabKey) {
   currentTab.value = tabKey
-  // 切出 ? 页面时重置周期（可选）
-  if (tabKey !== 'questions_7d') {
-    questionPeriod.value = '7d'
-  }
+  // 切出 ? 或 推荐 页面时重置周期
+  if (tabKey !== 'questions_7d') questionPeriod.value = '7d'
+  if (tabKey !== 'recommended') recommendedPeriod.value = '7d'
   loadPosts(true)
 }
 
-// 🔥 新增：设置周期并刷新
+// 设置周期并刷新
 function setQuestionPeriod(period) {
   questionPeriod.value = period
   loadPosts(true)
 }
 
+function setRecommendedPeriod(period) {
+  recommendedPeriod.value = period
+  loadPosts(true)
+}
+
 function handleSearch() {
-  if (searchQuery.value.trim()) {
-    router.push(`/search?q=${encodeURIComponent(searchQuery.value.trim())}`)
+  const q = searchQuery.value.trim()
+  if (!q) return
+
+  let url
+  if (searchMode.value === 'title') {
+    // 按标题搜索
+    url = `/api/posts/search?q=${encodeURIComponent(q)}`
+    router.push(`/search?q=${encodeURIComponent(q)}&mode=title`)
+  } else {
+    // 按标签搜索
+    url = `/api/posts/search-by-tags?tags=${encodeURIComponent(JSON.stringify([q]))}`
+    router.push(`/search/tags?q=${encodeURIComponent(q)}`)
   }
+
+}
+function toggleSearchMode() {
+  searchMode.value = searchMode.value === 'title' ? 'tags' : 'title'
 }
 
 function refreshPosts() {
@@ -210,7 +256,7 @@ async function logout() {
   }
 }
 
-// === 滚动监听（瀑布流）===
+// === 滚动监听===
 function handleScroll() {
   if (loading.value || !hasMore.value) return
   const { scrollTop, scrollHeight, clientHeight } = document.documentElement
@@ -237,7 +283,7 @@ onUnmounted(() => {
 /* ========== 保持原有样式完全不变 ========== */
 .home-container {
   min-height: 100vh;
-  background-color: #f9fafb;
+  background-color: #8fcec5; /*=====主页背景=====*/
   position: relative;
 }
 
@@ -245,7 +291,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   padding: 12px 24px;
-  background: white;
+  background: rgb(115, 232, 234); /*=====导航栏背景=====*/
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
   position: sticky;
   top: 0;
@@ -350,14 +396,16 @@ onUnmounted(() => {
 }
 
 .main-content {
+  height: calc(100vh - 80px); /* 80px ≈ navbar 高度 */
+  overflow-y: auto;
   padding: 24px;
 }
 
 .posts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); /* 👈 保持一行4个 */
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); /* 保持一行4个 */
   gap: 24px;
-  max-width: 1400px; /* 👈 保持宽屏 */
+  max-width: 1400px;
   margin: 0 auto;
 }
 
@@ -369,7 +417,7 @@ onUnmounted(() => {
   grid-column: 1 / -1;
 }
 
-/* ========== 悬浮按钮（关键：保持原位置） ========== */
+/* ========== 悬浮按钮========== */
 .floating-buttons {
   position: fixed;
   right: 24px;
@@ -405,7 +453,7 @@ onUnmounted(() => {
   color: #4f46e5;
 }
 
-/* 🔥 新增：周期切换按钮样式（紧贴刷新按钮下方） */
+/* 周期切换按钮样式 */
 .period-toggle {
   display: flex;
   flex-direction: column;
@@ -432,6 +480,40 @@ onUnmounted(() => {
   background: #4f46e5;
   color: white;
   border-color: #4f46e5;
+}
+
+/* 搜索框容器 */
+.search-input-wrapper {
+  display: flex;
+  flex: 1;
+  max-width: 400px;
+}
+
+/* 切换按钮样式 */
+.search-mode-toggle {
+  padding: 8px 12px;
+  background: #f3f4f6;
+  border: 1px solid #ddd;
+  border-left: none; /* 与输入框无缝衔接 */
+  border-radius:none;
+  cursor: pointer;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.search-mode-toggle:hover {
+  background: #e5e7eb;
+}
+
+/* 搜索按钮（确认） */
+.search-btn {
+  padding: 8px 16px;
+  background: #4f46e5;
+  color: white;
+  border: none;
+  border-radius: 0 20px 20px 0;
+  cursor: pointer;
+  margin-left: 0; /* 紧贴切换按钮 */
 }
 
 /* 响应式 */

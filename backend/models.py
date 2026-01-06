@@ -23,7 +23,7 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    created_at = db.Column(db.DateTime(timezone=True),default=lambda: datetime.now(timezone.utc))
     avatar_url = db.Column(db.String(256))
 
     # 用户发布的脑洞
@@ -40,24 +40,30 @@ class User(db.Model):
         return check_password_hash(self.password_hash, password)
 
     def to_dict(self):
-            """完整用户信息（用于本人或管理员）"""
+            """完整用户信息（用于本人）"""
+            created_at_str = self.created_at.isoformat().replace("+00:00", "Z") if self.created_at else None
             return {
                 'id': self.id,
                 'email': self.email,
                 'username': self.username,
                 'is_admin': self.is_admin,
-                'created_at': self.created_at.isoformat() if self.created_at else None,
-                'avatar_url': self.avatar_url or "/static/default-avatar.png"
+                'created_at': created_at_str,
+                'avatar_url': self.avatar_url
             }
 
     def to_public_dict(self):
         """公开用户信息（用于作者展示、他人查看）"""
+        avatar_url = self.avatar_url
+        if avatar_url and avatar_url.startswith('/static/uploads/avatars/'):
+            filename = avatar_url.split('/')[-1]
+            avatar_url = f"/api/user/avatar/{filename}"
+        
         return {
             'id': self.id,
             'username': self.username,
-            'avatar_url': self.avatar_url or "/static/default-avatar.png"
+            'avatar_url': avatar_url
         }
-   
+    
 
 
 class Post(db.Model):
@@ -66,8 +72,17 @@ class Post(db.Model):
     title = db.Column(db.String(200), nullable=False)
     tags = db.Column(db.JSON, nullable=True, default=list)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc),index = True)
-    updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc))
+    created_at = db.Column(
+            db.DateTime(timezone=True), 
+            default=lambda: datetime.now(timezone.utc),
+            index=True
+        )
+    updated_at = db.Column(
+            db.DateTime(timezone=True),
+            default=lambda: datetime.now(timezone.utc),
+            onupdate=lambda: datetime.now(timezone.utc)
+        )
+
     # 外键：作者
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
@@ -93,12 +108,22 @@ class Post(db.Model):
 
     def to_dict(self, extra_data=None):
         extra_data = extra_data or {}
+        def format_utc(dt):
+            if not dt:
+                return None
+            # 如果是 aware datetime（带时区）
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc)  # 转为 UTC
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            else:
+                # 如果是 naive datetime，假设它是 UTC
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         return {
             'id': self.id,
             'title': self.title,
             'content': self.content,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
-            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'created_at': format_utc(self.created_at),
+            'updated_at': format_utc(self.updated_at),
             'author': self.author.to_public_dict(),
             'comment_count': extra_data.get('comment_count', len(self.comments)),  # 安全回退
             'tags': [tag.name for tag in self.tags],
@@ -111,7 +136,10 @@ class Comment(db.Model):
     __tablename__ = 'comment'
     id = db.Column(db.Integer, primary_key=True)
     content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    created_at = db.Column(
+        db.DateTime(timezone=True),  # ←
+        default=lambda: datetime.now(timezone.utc)
+    )
     # 外键
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     post_id = db.Column(db.Integer, db.ForeignKey('post.id'), nullable=False)
@@ -126,16 +154,25 @@ class Comment(db.Model):
         from models import Like, Question
         like_count = Like.query.filter_by(target_type='comment', target_id=self.id).count()
         question_count = Question.query.filter_by(target_type='comment', target_id=self.id).count()
-        
+        def format_utc(dt):
+            if not dt:
+                return None
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc)
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            else:
+                # naive datetime，假设为 UTC
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         return {
             'id': self.id,
             'content': self.content,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_at': format_utc(self.created_at),
             'author': self.author.to_public_dict(),
             'post_id': self.post_id,
             'parent_id': self.parent_id,
             'like_count': like_count,          
-            'question_count': question_count 
+            'question_count': question_count,
+            'sub_count': self.get_total_reply_count()
         }
     
     def get_replies_paginated(self, limit=1, offset=0):
@@ -160,7 +197,11 @@ class Like(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     target_type = db.Column(db.String(20), nullable=False)  # 'post' or 'comment'
     target_id = db.Column(db.Integer, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    created_at = db.Column(
+        db.DateTime(timezone=True),  # ←
+        default=lambda: datetime.now(timezone.utc)
+    )
+
 
     # 确保一个用户不能重复对同一目标点赞
     __table_args__ = (
@@ -169,12 +210,19 @@ class Like(db.Model):
     )
 
     def to_dict(self):
+        def format_utc(dt):
+            if not dt: return None
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc)
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            else:
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         return {
             'id': self.id,
             'user_id': self.user_id,
             'target_type': self.target_type,
             'target_id': self.target_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': format_utc(self.created_at)
         }
 
 
@@ -185,7 +233,10 @@ class Question(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     target_type = db.Column(db.String(20), nullable=False)  # 'post' or 'comment'
     target_id = db.Column(db.Integer, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc)
+    )
 
     # 确保一个用户不能重复对同一目标点问号
     __table_args__ = (
@@ -194,10 +245,74 @@ class Question(db.Model):
     )
 
     def to_dict(self):
+        def format_utc(dt):
+            if not dt: return None
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc)
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+            else:
+                return dt.strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         return {
             'id': self.id,
             'user_id': self.user_id,
             'target_type': self.target_type,
             'target_id': self.target_id,
-            'created_at': self.created_at.isoformat() if self.created_at else None
+            'created_at': format_utc(self.created_at)
+        }
+
+# 私信
+class Message(db.Model):
+    __tablename__ = 'messages'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    sender_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    receiver_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    is_read = db.Column(db.Boolean, default=False)
+    # 关系
+    sender = db.relationship('User', foreign_keys=[sender_id])
+    receiver = db.relationship('User', foreign_keys=[receiver_id])
+    
+    def to_dict(self):
+        # 确保 created_at 是 aware datetime（带时区）
+        if self.created_at and self.created_at.tzinfo is None:
+            # 如果是 naive，强制设为 UTC（兼容旧数据）
+            utc_time = self.created_at.replace(tzinfo=timezone.utc)
+        else:
+            utc_time = self.created_at
+
+        # 转为 ISO 8601 UTC 字符串（如 "2025-06-15T06:30:00+00:00"）
+        created_at_str = utc_time.isoformat() if utc_time else None
+        
+        return {
+            'id': self.id,
+            'sender_id': self.sender_id,
+            'receiver_id': self.receiver_id,
+            'content': self.content,
+            'created_at': created_at_str,
+            'is_read': self.is_read
+        }
+
+# ====== 拉黑模型 ======
+class Block(db.Model):
+    __tablename__ = 'block'
+    id = db.Column(db.Integer, primary_key=True)
+    blocker_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # 拉黑者
+    blocked_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)  # 被拉黑者
+    created_at = db.Column(db.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # 确保不能重复拉黑同一人
+    __table_args__ = (
+        db.UniqueConstraint('blocker_id', 'blocked_id', name='uq_blocker_blocked'),
+        db.Index('idx_block_blocker', 'blocker_id'),
+        db.Index('idx_block_blocked', 'blocked_id')
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'blocker_id': self.blocker_id,
+            'blocked_id': self.blocked_id,
+            'created_at': self.created_at.isoformat().replace("+00:00", "Z") if self.created_at else None
         }

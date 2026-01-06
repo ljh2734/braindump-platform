@@ -3,13 +3,19 @@
 </template>
 
 <script setup>
-// 什么也不需要导入
 </script>
 
 <style>
-/* 可选：全局重置 */
+
 #app {
   min-height: 100vh;
-  background-color: #f9fafb;
+  background-color: #ffffff;
+}
+
+.app-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  min-height: 100vh;
 }
 </style>

@@ -1,4 +1,3 @@
-# backend/api/comment_bp.py
 """评论 API 蓝图：仅处理 HTTP 请求/响应，调用服务层"""
 
 from flask import Blueprint, request, jsonify
@@ -35,7 +34,10 @@ def create_comment_route(current_user, post_id):
         'user_id': comment.user_id,
         'post_id': comment.post_id,
         'parent_id': comment.parent_id,
-        'created_at': comment.created_at.isoformat()
+        'like_count': 0,
+        'question_count': 0,
+        'created_at': comment.created_at.isoformat(),
+        'author': comment.author.to_public_dict()
     }), 201
 
 

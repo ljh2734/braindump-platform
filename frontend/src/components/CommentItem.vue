@@ -2,7 +2,8 @@
   <div class="comment-item" :style="{ marginLeft: depth * 24 + 'px' }">
     <!-- 头像 & 用户名 -->
     <div class="comment-header">
-      <img :src="comment.author.avatar_url || '/default-avatar.png'" class="avatar" />
+      <img :src="userAvatar" alt="头像" class="avatar" />
+       <span class="username">{{ currentUser?.username || '游客' }}</span>
       <div class="user-info">
         <span class="username">{{ comment.author.username }}</span>
         <span class="time">{{ formatDate(comment.created_at) }}</span>
@@ -11,7 +12,7 @@
         <!-- 回复按钮 -->
         <button @click="handleReply" class="action-btn">↩️ 回复</button>
 
-        <!-- 删除按钮（仅作者或管理员） -->
+        <!-- 删除按钮（仅作者） -->
         <button
           v-if="canDelete"
           @click="handleDelete"
@@ -59,6 +60,11 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+const DEFAULT_AVATAR = '/static/default-avatar.png'
+const currentUser = ref(null)
+const userAvatar = computed(() => {
+  return currentUser.value?.avatar_url || DEFAULT_AVATAR
+})
 
 const props = defineProps({
   comment: {
@@ -85,10 +91,10 @@ const currentUserId = computed(() => {
   }
 })
 
-// 是否可删除（自己 or 管理员）
+// 是否可删除（自己）
 const canDelete = computed(() => {
-  // 假设普通用户 is_admin=false，管理员为 true
-  const isAdmin = false // TODO: 从用户信息中获取
+
+  const isAdmin = false
   return comment.value.author.id === currentUserId.value || isAdmin
 })
 
